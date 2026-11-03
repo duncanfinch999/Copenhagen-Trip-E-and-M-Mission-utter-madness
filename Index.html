@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Mobile Web App & PWA Capabilities -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0f172a">
+    <title>Copenhagen J-Day Weekend Trip Planner (Nov 6–8, 2026)</title>
+    <!-- Web App Manifest (Data URL for instant offline phone installation) -->
+    <link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22CPH%20J-Day%20Planner%22%2C%22short_name%22%3A%22CPH%20Planner%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230f172a%22%2C%22theme_color%22%3A%22%230f172a%22%7D">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS for Esri Map Engine -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .touch-active:active {
+            transform: scale(0.97);
+            opacity: 0.9;
+        }
+
+        .svg-pin {
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease;
+        }
+        .svg-pin:active, .svg-pin.active {
+            transform: scale(1.3);
+            filter: drop-shadow(0px 8px 12px rgba(239,68,68,0.7));
+        }
+
+        .pin-label-bg {
+            fill: #0f172a;
+            fill-opacity: 0.85;
+            rx: 4px;
+            ry: 4px;
+        }
+        .pin-label-text {
+            font-size: 10px;
+            font-weight: 600;
+            fill: #f8fafc;
+            pointer-events: none;
+        }
+
+        @keyframes dash {
+            to { stroke-dashoffset: -40; }
+        }
+        .metro-line {
+            stroke-dasharray: 6 4;
+            animation: dash 8s linear infinite;
+        }
+
+        #leaflet-map {
+            width: 100%;
+            height: 420px;
+            border-radius: 12px;
+            z-index: 10;
+        }
+        @media (min-width: 640px) {
+            #leaflet-map { height: 520px; }
+        }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-full flex flex-col antialiased">
+
+    <!-- Header Banner -->
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2.5">
+                    <span class="text-2xl sm:text-3xl leading-none">🇩🇰</span>
+                    <div>
+                        <h1 class="text-base sm:text-2xl font-extrabold text-white tracking-tight flex items-center gap-1.5">
+                            Copenhagen J-Day
+                            <span class="text-[10px] sm:text-xs font-semibold bg-red-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">2026</span>
+                        </h1>
+                        <p class="text-[11px] sm:text-sm text-slate-400 font-medium">Elvira &amp; Marcus | Nov 6–8</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-right">
+                    <div class="text-[10px] text-slate-400 uppercase font-semibold">Done</div>
+                    <div id="progress-percent" class="text-sm font-mono font-bold text-red-400">0%</div>
+                </div>
+            </div>
+
+            <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                <div id="progress-bar-inner" class="bg-gradient-to-r from-red-600 via-amber-500 to-emerald-400 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800 lg:hidden text-xs font-semibold mt-1">
+                <button onclick="switchMobileTab('itinerary')" id="mob-btn-itinerary" class="py-2.5 rounded-lg bg-red-600 text-white shadow touch-active flex items-center justify-center space-x-1.5">
+                    <i class="fa-solid fa-list-check"></i>
+                    <span>Itinerary &amp; Tasks</span>
+                </button>
+                <button onclick="switchMobileTab('map')" id="mob-btn-map" class="py-2.5 rounded-lg text-slate-400 hover:text-white touch-active flex items-center justify-center space-x-1.5">
+                    <i class="fa-solid fa-map-location-dot"></i>
+                    <span>Map View</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="max-w-7xl mx-auto w-full px-3 sm:px-6 py-4 sm:py-6 flex-1 flex flex-col gap-6">
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            <!-- MAP COLUMN -->
+            <div id="col-map-container" class="hidden lg:flex lg:col-span-7 flex-col gap-4">
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 shadow-md flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-map-location-dot text-red-500 text-base sm:text-lg"></i>
+                        <h2 class="font-bold text-white text-sm sm:text-base">Interactive City Map</h2>
+                    </div>
+
+                    <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 space-x-1 w-full sm:w-auto">
+                        <button onclick="switchMapTab('vector')" id="tab-btn-vector" class="flex-1 sm:flex-none text-[11px] font-semibold px-3 py-2 rounded-lg bg-red-600 text-white shadow touch-active">
+                            <i class="fa-solid fa-vector-square mr-1"></i> Vector Map
+                        </button>
+                        <button onclick="switchMapTab('leaflet')" id="tab-btn-leaflet" class="flex-1 sm:flex-none text-[11px] font-semibold px-3 py-2 rounded-lg text-slate-400 hover:text-white touch-active">
+                            <i class="fa-solid fa-earth-europe mr-1"></i> Street Map (Esri)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs">
+                    <span class="text-slate-400 font-medium text-[11px]">Filter Pins:</span>
+                    <div class="flex space-x-1" id="map-day-filters">
+                        <button onclick="filterMapByDay('all')" id="btn-filter-all" class="px-2.5 py-1.5 rounded-lg bg-slate-800 text-white font-semibold shadow touch-active">All (14)</button>
+                        <button onclick="filterMapByDay('fri')" id="btn-filter-fri" class="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-semibold touch-active">Fri</button>
+                        <button onclick="filterMapByDay('sat')" id="btn-filter-sat" class="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-semibold touch-active">Sat</button>
+                        <button onclick="filterMapByDay('sun')" id="btn-filter-sun" class="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-semibold touch-active">Sun</button>
+                    </div>
+                </div>
+
+                <div id="map-view-vector" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl relative min-h-[380px] sm:min-h-[520px] flex items-center justify-center p-2">
+                    <svg viewBox="0 0 950 680" class="w-full h-auto max-h-[550px] bg-slate-950 rounded-xl select-none" id="cph-svg-map">
+                        <defs>
+                            <linearGradient id="waterGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#0284c7" stop-opacity="0.3"/>
+                                <stop offset="100%" stop-color="#0369a1" stop-opacity="0.45"/>
+                            </linearGradient>
+                            <linearGradient id="landGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stop-color="#0f172a"/>
+                                <stop offset="100%" stop-color="#1e293b"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="950" height="680" fill="url(#landGradient)" rx="12"/>
+                        <path d="M 620 0 C 630 160, 560 300, 510 400 C 470 480, 450 560, 440 680 L 950 680 L 950 0 Z" fill="url(#waterGradient)" />
+                        <path d="M 550 380 C 620 390, 680 450, 640 550 C 600 610, 500 610, 460 530" fill="none" stroke="#0284c7" stroke-width="18" stroke-opacity="0.35" stroke-linecap="round"/>
+                        <path d="M 510 280 L 410 280" fill="none" stroke="#38bdf8" stroke-width="12" stroke-opacity="0.6" stroke-linecap="round"/>
+                        <rect x="250" y="110" width="140" height="100" rx="16" fill="#10b981" fill-opacity="0.12" stroke="#10b981" stroke-opacity="0.3" stroke-dasharray="4 2"/>
+                        <circle cx="190" cy="110" r="48" fill="#10b981" fill-opacity="0.15" stroke="#10b981" stroke-opacity="0.3"/>
+                        <rect x="140" y="470" width="110" height="90" rx="12" fill="#f59e0b" fill-opacity="0.1" stroke="#f59e0b" stroke-opacity="0.2"/>
+                        <path d="M 120 180 C 120 80, 440 80, 460 180 C 480 290, 420 480, 270 510 C 140 520, 100 320, 120 180 Z" 
+                              fill="none" stroke="#ef4444" stroke-width="3" class="metro-line" opacity="0.75"/>
+                        <text x="300" y="72" fill="#ef4444" font-size="11" font-weight="700" letter-spacing="1">METRO M3 CITYRINGEN LOOP</text>
+                        <text x="700" y="250" fill="#0284c7" font-size="12" font-weight="700" opacity="0.6" letter-spacing="1.5">INDERHAVNEN HARBOR</text>
+                        <text x="580" y="500" fill="#38bdf8" font-size="11" font-weight="600" opacity="0.6">CHRISTIANSHAVN</text>
+                        <text x="350" y="270" fill="#94a3b8" font-size="10" font-weight="600" opacity="0.5">INNER CITY (INDRE BY)</text>
+                        <g id="svg-pins-container"></g>
+                    </svg>
+
+                    <div class="absolute bottom-3 left-3 bg-slate-950/90 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 text-[11px] text-slate-400">
+                        <i class="fa-solid fa-hand-pointer text-red-400 mr-1.5"></i> Tap pins for directions.
+                    </div>
+                </div>
+
+                <div id="map-view-leaflet" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl hidden relative min-h-[380px] sm:min-h-[520px]">
+                    <div id="leaflet-map"></div>
+                </div>
+
+                <div id="spot-detail-card" class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col gap-3">
+                    <div class="flex items-start space-x-3 w-full">
+                        <div id="spot-card-badge" class="w-10 h-10 rounded-xl bg-red-600 text-white font-extrabold flex items-center justify-center text-base shrink-0 shadow">
+                            1
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+                                <span id="spot-card-category" class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-500/20 text-blue-300">Logistics</span>
+                                <span id="spot-card-day" class="text-[10px] font-semibold text-slate-400">Friday Nov 6</span>
+                            </div>
+                            <h3 id="spot-card-title" class="font-bold text-white text-sm sm:text-base mt-1 leading-snug break-words">
+                                Danhostel Copenhagen City
+                            </h3>
+                            <p id="spot-card-desc" class="text-xs text-slate-300 mt-1 leading-relaxed">
+                                Central hostel base on H.C. Andersens Boulevard. Drop luggage here early Friday.
+                            </p>
+                        </div>
+                    </div>
+                    <a id="spot-card-gmap-btn" 
+                       href="https://www.google.com/maps/search/?api=1&query=Danhostel+Copenhagen+City" 
+                       target="_blank" rel="noopener"
+                       class="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-xs py-3 rounded-xl border border-slate-700 flex items-center justify-center space-x-2 touch-active">
+                        <i class="fa-solid fa-location-arrow text-red-400"></i>
+                        <span>Open Google Maps Navigation</span>
+                    </a>
+                </div>
+
+            </div>
+
+            <!-- ITINERARY COLUMN -->
+            <div id="col-itinerary-container" class="lg:col-span-5 flex flex-col gap-4">
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-md flex items-center justify-between">
+                    <div>
+                        <h2 class="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-red-500"></i>
+                            Itinerary Checklist
+                        </h2>
+                        <p class="text-[11px] text-slate-400">Tap items to mark complete on your trip.</p>
+                    </div>
+                    <button onclick="resetTasks()" class="text-xs text-slate-400 hover:text-red-400 transition underline p-1 touch-active">Reset</button>
+                </div>
+
+                <div class="space-y-3.5 max-h-[660px] overflow-y-auto pr-0.5">
+                    
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow">
+                        <button onclick="toggleDay('day1-content')" class="w-full bg-slate-800/80 hover:bg-slate-800 p-3.5 text-left flex items-center justify-between transition border-b border-slate-800 touch-active">
+                            <div class="flex items-center space-x-2.5">
+                                <span class="bg-red-600 text-white font-extrabold text-[11px] px-2 py-0.5 rounded-lg">NOV 6</span>
+                                <div>
+                                    <h3 class="font-bold text-white text-xs sm:text-sm">Friday — Arrival &amp; J-Day Night</h3>
+                                    <p class="text-[11px] text-slate-400">Julebryg Release at 20:59 Sharp</p>
+                                </div>
+                            </div>
+                            <i id="day1-content-icon" class="fa-solid fa-chevron-down text-slate-400 transition-transform text-xs"></i>
+                        </button>
+                        <div id="day1-content" class="p-2.5 divide-y divide-slate-800/80"></div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow">
+                        <button onclick="toggleDay('day2-content')" class="w-full bg-slate-800/80 hover:bg-slate-800 p-3.5 text-left flex items-center justify-between transition border-b border-slate-800 touch-active">
+                            <div class="flex items-center space-x-2.5">
+                                <span class="bg-slate-700 text-slate-200 font-extrabold text-[11px] px-2 py-0.5 rounded-lg">NOV 7</span>
+                                <div>
+                                    <h3 class="font-bold text-white text-xs sm:text-sm">Saturday — Palaces &amp; Canals</h3>
+                                    <p class="text-[11px] text-slate-400">Christiansborg &amp; Torvehallerne</p>
+                                </div>
+                            </div>
+                            <i id="day2-content-icon" class="fa-solid fa-chevron-down text-slate-400 transition-transform text-xs"></i>
+                        </button>
+                        <div id="day2-content" class="p-2.5 divide-y divide-slate-800/80"></div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow">
+                        <button onclick="toggleDay('day3-content')" class="w-full bg-slate-800/80 hover:bg-slate-800 p-3.5 text-left flex items-center justify-between transition border-b border-slate-800 touch-active">
+                            <div class="flex items-center space-x-2.5">
+                                <span class="bg-slate-700 text-slate-200 font-extrabold text-[11px] px-2 py-0.5 rounded-lg">NOV 8</span>
+                                <div>
+                                    <h3 class="font-bold text-white text-xs sm:text-sm">Sunday — Royal Guard &amp; Harbor</h3>
+                                    <p class="text-[11px] text-slate-400">Amalienborg Guard &amp; Flight Home</p>
+                                </div>
+                            </div>
+                            <i id="day3-content-icon" class="fa-solid fa-chevron-down text-slate-400 transition-transform text-xs"></i>
+                        </button>
+                        <div id="day3-content" class="p-2.5 divide-y divide-slate-800/80"></div>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+            <div class="bg-gradient-to-br from-red-950/60 to-slate-900 border border-red-900/40 rounded-2xl p-4 shadow-lg">
+                <div class="flex items-center space-x-2 text-red-400 mb-1.5">
+                    <i class="fa-solid fa-beer-mug-empty text-lg"></i>
+                    <h3 class="font-bold text-white text-sm">J-Day Survival Advice</h3>
+                </div>
+                <p class="text-xs text-slate-300 leading-relaxed">
+                    Tuborg Christmas beer drops at <strong class="text-white">20:59 Friday</strong>. Secure a table at Downtown Bar or The Globe by 18:00. Switching pubs after 21:00 is almost impossible.
+                </p>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+                <div class="flex items-center space-x-2 text-blue-400 mb-1.5">
+                    <i class="fa-solid fa-train-subway text-lg"></i>
+                    <h3 class="font-bold text-white text-sm">Transit &amp; Lockers</h3>
+                </div>
+                <ul class="text-xs text-slate-300 space-y-1">
+                    <li>• <strong>CPH Airport → Central:</strong> 13 min DSB train.</li>
+                    <li>• <strong>Sunday Lockers:</strong> København H (Reventlowsgade side).</li>
+                    <li>• <strong>Metro M3:</strong> 24/7 City Ring loop.</li>
+                </ul>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+                <div class="flex items-center space-x-2 text-amber-400 mb-1.5">
+                    <i class="fa-solid fa-compass text-lg"></i>
+                    <h3 class="font-bold text-white text-sm">Quick Booking Links</h3>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-[11px]">
+                    <a href="https://copenhagenpass.net/en/" target="_blank" rel="noopener" class="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-slate-200 flex items-center justify-between touch-active">
+                        <span>Copenhagen Card</span> <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-slate-400"></i>
+                    </a>
+                    <a href="https://www.stromma.com/en-dk/copenhagen/" target="_blank" rel="noopener" class="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-slate-200 flex items-center justify-between touch-active">
+                        <span>Stromma Boat</span> <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-slate-400"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        const locations = [
+            { id: 'loc-danhostel', num: 1, name: 'Danhostel Copenhagen City', desc: 'Central hostel base on H.C. Andersens Blvd. Drop luggage early Friday.', day: 'fri', lat: 55.6728, lng: 12.5765, x: 260, y: 460, color: '#3b82f6', category: 'Logistics', query: 'Danhostel+Copenhagen+City' },
+            { id: 'loc-rosenborg', num: 2, name: 'Rosenborg Castle & Kongens Have', desc: 'Historic 17th-century castle housing the crown jewels and royal gardens.', day: 'fri', lat: 55.6858, lng: 12.5772, x: 270, y: 150, color: '#ef4444', category: 'Sightseeing', query: 'Rosenborg+Castle+Copenhagen' },
+            { id: 'loc-rizraz', num: 3, name: 'RizRaz Mediterranean Restaurant', desc: 'Popular lunch buffet spot near Kongens Nytorv with vegetarian/halal options.', day: 'fri', lat: 55.6790, lng: 12.5805, x: 410, y: 310, color: '#f59e0b', category: 'Food', query: 'RizRaz+Copenhagen' },
+            { id: 'loc-nyhavn', num: 4, name: 'Nyhavn Waterfront', desc: 'Iconic 17th-century canal and colorful townhouse stroll.', day: 'fri', lat: 55.6799, lng: 12.5910, x: 550, y: 290, color: '#ef4444', category: 'Sightseeing', query: 'Nyhavn+Copenhagen' },
+            { id: 'loc-tivolifood', num: 5, name: 'Tivoli Food Hall', desc: 'Indoor food hall next to Central Station. No park ticket required.', day: 'fri', lat: 55.6738, lng: 12.5668, x: 190, y: 440, color: '#f59e0b', category: 'Food', query: 'Tivoli+Food+Hall' },
+            { id: 'loc-downtownbar', num: 6, name: 'Copenhagen Downtown Bar', desc: 'Main J-Day hub. Tuborg Christmas beer drops at 20:59 sharp!', day: 'fri', lat: 55.6766, lng: 12.5738, x: 280, y: 370, color: '#8b5cf6', category: 'J-Day Nightlife', query: 'Copenhagen+Downtown+Hostel' },
+            { id: 'loc-christiansborg', num: 7, name: 'Christiansborg Palace', desc: 'Royal Reception Rooms, Parliament & Great Hall tapestries.', day: 'sat', lat: 55.6762, lng: 12.5802, x: 420, y: 380, color: '#ef4444', category: 'Sightseeing', query: 'Christiansborg+Palace' },
+            { id: 'loc-stromma', num: 8, name: 'Stromma Canal Tours (Ved Stranden)', desc: 'Covered 1-hour guided harbor and canal boat tour departure pier.', day: 'sat', lat: 55.6773, lng: 12.5815, x: 440, y: 350, color: '#06b6d4', category: 'Tour', query: 'Ved+Stranden+Copenhagen' },
+            { id: 'loc-torvehallerne', num: 9, name: 'Torvehallerne Glass Food Markets', desc: 'High-end twin food market halls right next to Nørreport station.', day: 'sat', lat: 55.6836, lng: 12.5695, x: 200, y: 200, color: '#f59e0b', category: 'Food Market', query: 'Torvehallerne+KBH' },
+            { id: 'loc-theglobe', num: 10, name: 'The Globe Irish Pub', desc: 'Authentic pub on Nørregade for match fixtures and cold pints.', day: 'sat', lat: 55.6806, lng: 12.5714, x: 240, y: 280, color: '#8b5cf6', category: 'Pub / Sports', query: 'The+Globe+Irish+Pub+Copenhagen' },
+            { id: 'loc-lockers', num: 11, name: 'København H Central Station Lockers', desc: 'Store Sunday luggage (Reventlowsgade side) before flying home.', day: 'sun', lat: 55.6725, lng: 12.5646, x: 160, y: 470, color: '#3b82f6', category: 'Logistics', query: 'Copenhagen+Central+Station' },
+            { id: 'loc-botanical', num: 12, name: 'Botanical Garden & Palm House', desc: 'Lush tropical glasshouses and quiet garden walks.', day: 'sun', lat: 55.6868, lng: 12.5735, x: 230, y: 130, color: '#10b981', category: 'Nature / Sightseeing', query: 'Botanical+Garden+Copenhagen' },
+            { id: 'loc-amalienborg', num: 13, name: 'Amalienborg Palace Square', desc: 'Royal palace complex. Changing of the Guard takes place at 12:00.', day: 'sun', lat: 55.6840, lng: 12.5932, x: 590, y: 190, color: '#ef4444', category: 'Royal Sights', query: 'Amalienborg+Palace' },
+            { id: 'loc-labanchina', num: 14, name: 'La Banchina (Christianshavn)', desc: 'Waterfront café, natural wine bar & sauna spot on the harbor edge.', day: 'sun', lat: 55.6872, lng: 12.6065, x: 740, y: 110, color: '#f59e0b', category: 'Food & Relax', query: 'La+Banchina+Copenhagen' }
+        ];
+
+        const itineraryTasks = [
+            { id: 'task-1', day: 'day1', time: '06:30 – 09:30', title: 'Flight LHR → CPH', desc: 'Land CPH (~09:30), clear passport control & baggage (~20 min).', locId: null },
+            { id: 'task-2', day: 'day1', time: '10:00 – 10:30', title: 'Airport Train & Luggage Drop', desc: 'Take 13-min DSB train to København H. Walk to Danhostel City to drop luggage.', locId: 'loc-danhostel' },
+            { id: 'task-3', day: 'day1', time: '10:50 – 12:30', title: 'Rosenborg Castle & Gardens', desc: 'Metro M3 to Nørreport. Explore historic Rosenborg Castle & Kongens Have.', locId: 'loc-rosenborg' },
+            { id: 'task-4', day: 'day1', time: '12:45 – 14:15', title: 'RizRaz Lunch & Nyhavn Stroll', desc: 'Mediterranean lunch buffet at RizRaz, then photo stroll along Nyhavn harbor.', locId: 'loc-rizraz' },
+            { id: 'task-5', day: 'day1', time: '15:00 – 16:00', title: 'Check-in & Freshen Up', desc: 'Check into Danhostel rooms and recharge before evening.', locId: 'loc-danhostel' },
+            { id: 'task-6', day: 'day1', time: '16:00 – 17:30', title: 'Tivoli Food Hall Early Dinner', desc: 'Heated indoor food market by Central Station (No Tivoli park ticket needed).', locId: 'loc-tivolifood' },
+            { id: 'task-7', day: 'day1', time: '17:30 – 20:59', title: 'J-Day Pub Table Lock-in', desc: 'Secure table early at Copenhagen Downtown Bar or The Globe before crowds pack out.', locId: 'loc-downtownbar' },
+            { id: 'task-8', day: 'day1', time: '20:59 Sharp', title: '🍻 J-DAG BEER RELEASE!', desc: 'Tuborg Christmas beer launch nationwide with blue Santa suits & fake snow!', locId: 'loc-downtownbar' },
+            { id: 'task-9', day: 'day2', time: '08:30 – 09:30', title: 'Breakfast & Sleep In', desc: 'Breakfast at Danhostel + extra 30 mins recovery time from J-Day.', locId: 'loc-danhostel' },
+            { id: 'task-10', day: 'day2', time: '10:00 – 11:30', title: 'Christiansborg Palace Tour', desc: 'Arrive right at 10:00 opening for Royal Reception Rooms & Great Hall tapestries.', locId: 'loc-christiansborg' },
+            { id: 'task-11', day: 'day2', time: '11:45 – 12:45', title: 'Stromma Canal Boat Tour', desc: '1-hour covered boat tour departing from Ved Stranden pier.', locId: 'loc-stromma' },
+            { id: 'task-12', day: 'day2', time: '12:45 – 14:00', title: 'Torvehallerne Food Hall Lunch', desc: 'Take M3 metro to Nørreport for gourmet market food and smørrebrød.', locId: 'loc-torvehallerne' },
+            { id: 'task-13', day: 'day2', time: '14:00 – 15:30', title: 'Strøget Shopping Stroll', desc: 'Explore Europe’s longest pedestrian shopping street.', locId: 'loc-theglobe' },
+            { id: 'task-14', day: 'day2', time: '15:30 – 18:00', title: 'The Globe / Round Tower', desc: 'Catch afternoon football fixtures at The Globe or visit Round Tower views before sunset (16:30).', locId: 'loc-theglobe' },
+            { id: 'task-15', day: 'day2', time: '18:30 – 20:30', title: 'Communal Indoor Dinner', desc: 'Relaxed street food dinner near Rådhuspladsen (GAM Street Food).', locId: 'loc-downtownbar' },
+            { id: 'task-16', day: 'day3', time: '08:00 – 09:00', title: 'Checkout & Bag Drop', desc: 'Checkout Danhostel. Store luggage in lockers at København H (Reventlowsgade side).', locId: 'loc-lockers' },
+            { id: 'task-17', day: 'day3', time: '09:30 – 11:00', title: 'Botanical Garden & Palm House', desc: 'Morning walk through historic tropical glasshouses near Nørreport.', locId: 'loc-botanical' },
+            { id: 'task-18', day: 'day3', time: '11:15 – 12:30', title: 'Amalienborg Guard Change', desc: 'Walk to palace square to witness Changing of the Guard at 12:00 sharp.', locId: 'loc-amalienborg' },
+            { id: 'task-19', day: 'day3', time: '12:30 – 14:30', title: 'Christianshavn & La Banchina', desc: 'Cross harbor bridge for lunch at La Banchina or canal-side eateries.', locId: 'loc-labanchina' },
+            { id: 'task-20', day: 'day3', time: '14:30 – 16:30', title: 'Canal Stroll & Luggage Pickup', desc: 'Stroll harbor, warm up at café, return to København H by 16:30 to collect bags.', locId: 'loc-lockers' },
+            { id: 'task-21', day: 'day3', time: '17:00 – 21:30', title: 'Airport Train & Departure', desc: '13-min DSB train to CPH Airport. Security by 17:30 ahead of 21:30 LHR flight.', locId: 'loc-lockers' }
+        ];
+
+        let completedTasks = new Set();
+        try {
+            const saved = localStorage.getItem('cph_completed_tasks');
+            if (saved) completedTasks = new Set(JSON.parse(saved));
+        } catch (e) {}
+
+        let currentActiveDayFilter = 'all';
+        let currentSelectedLocId = 'loc-danhostel';
+        let leafletMapInstance = null;
+        let leafletMarkers = {};
+
+        function switchMobileTab(tab) {
+            const itineraryCol = document.getElementById('col-itinerary-container');
+            const mapCol = document.getElementById('col-map-container');
+            const btnItinerary = document.getElementById('mob-btn-itinerary');
+            const btnMap = document.getElementById('mob-btn-map');
+
+            if (tab === 'itinerary') {
+                itineraryCol.classList.remove('hidden');
+                mapCol.classList.add('hidden');
+                btnItinerary.className = "py-2.5 rounded-lg bg-red-600 text-white shadow touch-active flex items-center justify-center space-x-1.5";
+                btnMap.className = "py-2.5 rounded-lg text-slate-400 hover:text-white touch-active flex items-center justify-center space-x-1.5";
+            } else {
+                itineraryCol.classList.add('hidden');
+                mapCol.classList.remove('hidden');
+                btnMap.className = "py-2.5 rounded-lg bg-red-600 text-white shadow touch-active flex items-center justify-center space-x-1.5";
+                btnItinerary.className = "py-2.5 rounded-lg text-slate-400 hover:text-white touch-active flex items-center justify-center space-x-1.5";
+                if (leafletMapInstance) {
+                    setTimeout(() => leafletMapInstance.invalidateSize(), 150);
+                }
+            }
+        }
+
+        function toggleDay(contentId) {
+            const el = document.getElementById(contentId);
+            const icon = document.getElementById(contentId + '-icon');
+            if (el.classList.contains('hidden')) {
+                el.classList.remove('hidden');
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            } else {
+                el.classList.add('hidden');
+                if (icon) icon.style.transform = 'rotate(-90deg)';
+            }
+        }
+
+        function selectLocation(locId) {
+            currentSelectedLocId = locId;
+            const loc = locations.find(l => l.id === locId);
+            if (!loc) return;
+
+            document.getElementById('spot-card-badge').innerText = loc.num;
+            document.getElementById('spot-card-badge').style.backgroundColor = loc.color;
+            document.getElementById('spot-card-title').innerText = loc.name;
+            document.getElementById('spot-card-desc').innerText = loc.desc;
+            document.getElementById('spot-card-category').innerText = loc.category;
+            
+            const dayNames = { fri: 'Friday Nov 6 (J-Day)', sat: 'Saturday Nov 7', sun: 'Sunday Nov 8' };
+            document.getElementById('spot-card-day').innerText = dayNames[loc.day] || '';
+
+            const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${loc.query}`;
+            document.getElementById('spot-card-gmap-btn').href = gmapsUrl;
+
+            if (leafletMapInstance) {
+                leafletMapInstance.panTo([loc.lat, loc.lng]);
+                if (leafletMarkers[loc.id]) {
+                    leafletMarkers[loc.id].openPopup();
+                }
+            }
+
+            renderSvgPins(currentActiveDayFilter);
+
+            if (window.innerWidth < 1024) {
+                switchMobileTab('map');
+            }
+        }
+
+        function renderSvgPins(filterDay = 'all') {
+            const container = document.getElementById('svg-pins-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            locations.forEach(loc => {
+                if (filterDay !== 'all' && loc.day !== filterDay) return;
+
+                const isSelected = loc.id === currentSelectedLocId;
+                const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                g.setAttribute('class', `svg-pin ${isSelected ? 'active' : ''}`);
+                g.setAttribute('onclick', `selectLocation('${loc.id}')`);
+
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', loc.x);
+                circle.setAttribute('cy', loc.y);
+                circle.setAttribute('r', isSelected ? '17' : '14');
+                circle.setAttribute('fill', loc.color);
+                circle.setAttribute('stroke', '#ffffff');
+                circle.setAttribute('stroke-width', '2.5');
+
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', loc.x);
+                text.setAttribute('y', loc.y + 4);
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('fill', '#ffffff');
+                text.setAttribute('font-size', '11');
+                text.setAttribute('font-weight', '800');
+                text.textContent = loc.num;
+
+                const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                bg.setAttribute('x', loc.x + 18);
+                bg.setAttribute('y', loc.y - 10);
+                bg.setAttribute('width', (loc.name.length * 5.8) + 12);
+                bg.setAttribute('height', '20');
+                bg.setAttribute('class', 'pin-label-bg');
+
+                const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                label.setAttribute('x', loc.x + 24);
+                label.setAttribute('y', loc.y + 3);
+                label.setAttribute('class', 'pin-label-text');
+                label.textContent = loc.name;
+
+                g.appendChild(circle);
+                g.appendChild(text);
+                g.appendChild(bg);
+                g.appendChild(label);
+                container.appendChild(g);
+            });
+        }
+
+        function filterMapByDay(day) {
+            currentActiveDayFilter = day;
+            ['all', 'fri', 'sat', 'sun'].forEach(d => {
+                const btn = document.getElementById(`btn-filter-${d}`);
+                if (btn) {
+                    if (d === day) {
+                        btn.className = 'px-2.5 py-1.5 rounded-lg bg-slate-800 text-white font-semibold shadow touch-active';
+                    } else {
+                        btn.className = 'px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white font-semibold touch-active';
+                    }
+                }
+            });
+
+            renderSvgPins(day);
+
+            if (leafletMapInstance) {
+                locations.forEach(loc => {
+                    if (leafletMarkers[loc.id]) {
+                        if (day === 'all' || loc.day === day) {
+                            leafletMapInstance.addLayer(leafletMarkers[loc.id]);
+                        } else {
+                            leafletMapInstance.removeLayer(leafletMarkers[loc.id]);
+                        }
+                    }
+                });
+            }
+        }
+
+        function switchMapTab(mode) {
+            const vectorMap = document.getElementById('map-view-vector');
+            const leafletMap = document.getElementById('map-view-leaflet');
+            const btnVector = document.getElementById('tab-btn-vector');
+            const btnLeaflet = document.getElementById('tab-btn-leaflet');
+
+            if (mode === 'vector') {
+                vectorMap.classList.remove('hidden');
+                leafletMap.classList.add('hidden');
+                btnVector.className = 'flex-1 sm:flex-none text-[11px] font-semibold px-3 py-2 rounded-lg bg-red-600 text-white shadow touch-active';
+                btnLeaflet.className = 'flex-1 sm:flex-none text-[11px] font-semibold px-3 py-2 rounded-lg text-slate-400 hover:text-white touch-active';
+            } else {
+                vectorMap.classList.add('hidden');
+                leafletMap.classList.remove('hidden');
+                btnLeaflet.className = 'flex-1 sm:flex-none text-[11px] font-semibold px-3 py-2 rounded-lg bg-red-600 text-white shadow touch-active';
+                btnVector.className = 'flex-1 sm:flex-none text-[11px] font-semibold px-3 py-2 rounded-lg text-slate-400 hover:text-white touch-active';
+
+                if (!leafletMapInstance) {
+                    initLeafletMap();
+                } else {
+                    setTimeout(() => leafletMapInstance.invalidateSize(), 150);
+                }
+            }
+        }
+
+        function initLeafletMap() {
+            if (typeof L === 'undefined') return;
+            leafletMapInstance = L.map('leaflet-map').setView([55.678, 12.578], 13);
+
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+                maxZoom: 18,
+                attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS'
+            }).addTo(leafletMapInstance);
+
+            locations.forEach(loc => {
+                const customIcon = L.divIcon({
+                    className: 'custom-leaflet-pin',
+                    html: `<div style="background-color:${loc.color}; color:white; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; border:2px solid white; box-shadow:0 3px 8px rgba(0,0,0,0.4);">${loc.num}</div>`,
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 14]
+                });
+
+                const marker = L.marker([loc.lat, loc.lng], { icon: customIcon })
+                    .bindPopup(`
+                        <div style="font-family:sans-serif; padding:2px;">
+                            <strong style="color:#0f172a; font-size:13px;">${loc.num}. ${loc.name}</strong>
+                            <p style="margin:4px 0 6px 0; font-size:11px; color:#475569;">${loc.desc}</p>
+                            <a href="https://www.google.com/maps/search/?api=1&query=${loc.query}" target="_blank" style="color:#ef4444; font-weight:bold; font-size:11px;">Open Google Maps &rarr;</a>
+                        </div>
+                    `);
+
+                marker.on('click', () => selectLocation(loc.id));
+                marker.addTo(leafletMapInstance);
+                leafletMarkers[loc.id] = marker;
+            });
+        }
+
+        function toggleTask(taskId) {
+            if (completedTasks.has(taskId)) {
+                completedTasks.delete(taskId);
+            } else {
+                completedTasks.add(taskId);
+            }
+            try {
+                localStorage.setItem('cph_completed_tasks', JSON.stringify(Array.from(completedTasks)));
+            } catch (e) {}
+            renderItinerary();
+            updateProgress();
+        }
+
+        function resetTasks() {
+            completedTasks.clear();
+            try {
+                localStorage.removeItem('cph_completed_tasks');
+            } catch (e) {}
+            renderItinerary();
+            updateProgress();
+        }
+
+        function updateProgress() {
+            const total = itineraryTasks.length;
+            const done = completedTasks.size;
+            const pct = Math.round((done / total) * 100);
+            document.getElementById('progress-percent').innerText = pct + '%';
+            document.getElementById('progress-bar-inner').style.width = pct + '%';
+        }
+
+        function renderItinerary() {
+            ['day1', 'day2', 'day3'].forEach(day => {
+                const container = document.getElementById(`${day}-content`);
+                if (!container) return;
+                container.innerHTML = '';
+
+                const tasks = itineraryTasks.filter(t => t.day === day);
+                tasks.forEach(t => {
+                    const isDone = completedTasks.has(t.id);
+                    const loc = t.locId ? locations.find(l => l.id === t.locId) : null;
+
+                    const div = document.createElement('div');
+                    div.className = `p-2.5 sm:p-3 rounded-xl transition flex items-start space-x-3 ${isDone ? 'bg-slate-950/40 opacity-60' : 'hover:bg-slate-800/50'}`;
+
+                    div.innerHTML = `
+                        <input type="checkbox" ${isDone ? 'checked' : ''} 
+                               onchange="toggleTask('${t.id}')"
+                               class="mt-1 w-4 h-4 rounded border-slate-700 text-red-600 focus:ring-red-500 bg-slate-950 cursor-pointer accent-red-600 shrink-0">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between flex-wrap gap-1">
+                                <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">${t.time}</span>
+                                ${loc ? `<button onclick="selectLocation('${loc.id}')" class="text-[10px] font-bold text-red-400 hover:text-red-300 flex items-center gap-1 touch-active"><i class="fa-solid fa-location-dot"></i> Map #${loc.num}</button>` : ''}
+                            </div>
+                            <h4 class="font-bold text-xs sm:text-sm ${isDone ? 'line-through text-slate-400' : 'text-white'} mt-1">${t.title}</h4>
+                            <p class="text-[11px] text-slate-400 leading-relaxed mt-0.5">${t.desc}</p>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            renderItinerary();
+            updateProgress();
+            renderSvgPins('all');
+            selectLocation('loc-danhostel');
+        });
+    </script>
+</body>
+</html>
